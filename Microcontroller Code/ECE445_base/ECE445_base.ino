@@ -1,26 +1,26 @@
 /***************************************************
-  This is a library for the Adafruit 1.8" SPI display.
-
-This library works with the Adafruit 1.8" TFT Breakout w/SD card
-  ----> http://www.adafruit.com/products/358
-The 1.8" TFT shield
-  ----> https://www.adafruit.com/product/802
-The 1.44" TFT breakout
-  ----> https://www.adafruit.com/product/2088
-as well as Adafruit raw 1.8" TFT display
-  ----> http://www.adafruit.com/products/618
-
-  Check out the links above for our tutorials and wiring diagrams
-  These displays use SPI to communicate, 4 or 5 pins are required to
-  interface (RST is optional)
-  Adafruit invests time and resources providing this open source code,
-  please support Adafruit and open-source hardware by purchasing
-  products from Adafruit!
-
-  Written by Limor Fried/Ladyada for Adafruit Industries.
-  Modified by Bodecker DellaMaria and Christopher Buris for ECE 445 @ UIUC Fall 2014
-  Intended for use with Sparkfun Micro Pro 5V (compatible with Arduino Leonardo codebase)
-  MIT license, all text above must be included in any redistribution
+ * This is a library for the Adafruit 1.8" SPI display.
+ * 
+ * This library works with the Adafruit 1.8" TFT Breakout w/SD card
+ * ----> http://www.adafruit.com/products/358
+ * The 1.8" TFT shield
+ * ----> https://www.adafruit.com/product/802
+ * The 1.44" TFT breakout
+ * ----> https://www.adafruit.com/product/2088
+ * as well as Adafruit raw 1.8" TFT display
+ * ----> http://www.adafruit.com/products/618
+ * 
+ * Check out the links above for our tutorials and wiring diagrams
+ * These displays use SPI to communicate, 4 or 5 pins are required to
+ * interface (RST is optional)
+ * Adafruit invests time and resources providing this open source code,
+ * please support Adafruit and open-source hardware by purchasing
+ * products from Adafruit!
+ * 
+ * Written by Limor Fried/Ladyada for Adafruit Industries.
+ * Modified by Bodecker DellaMaria and Christopher Buris for ECE 445 @ UIUC Fall 2014
+ * Intended for use with Sparkfun Micro Pro 5V (compatible with Arduino Leonardo codebase)
+ * MIT license, all text above must be included in any redistribution
  ****************************************************/
 
 #include <Adafruit_GFX.h>    // Core graphics library
@@ -55,14 +55,14 @@ const int RAD = 56;
 int start_x = 2 * CHAR_WIDTH, start_y = CHAR_HEIGHT;
 int start_x_offset = 4 * CHAR_WIDTH, start_y_offset = 0;
 uint16_t text_color = ST7735_WHITE, bg_color = ST7735_BLACK,
-  line_color = 0xFF00;
+line_color = 0xFF00;
 int center_x = 0, center_y = 0;
 
-#define EARTH_RADIUS 6371 // mean Earth's radius in km
+#define EARTH_RADIUS 6371000 // mean Earth's radius in km
 
 float getMagDeclination()
 {
-  return 3.0686; // for 61820
+  return -3.0686/180*PI; // for 61820
 }
 
 void setup(void) {
@@ -94,17 +94,17 @@ void setup(void) {
   // large block of text
   tft.fillScreen(ST7735_BLACK);
   delay(1000);
-  
+
   tft.setTextColor(text_color, bg_color);
   tft.setTextWrap(true);
-  
+
   center_x = tft.width() / 2;
-  center_y = tft.height() / 2;
-  
-//  tft.setCursor(start_x, start_y);
-//  tft.println("X: ");
-//  tft.println("  Y: ");
-//  tft.println("  Z: ");
+  center_y = tft.height() / 2 + 20;
+
+  //  tft.setCursor(start_x, start_y);
+  //  tft.println("X: ");
+  //  tft.println("  Y: ");
+  //  tft.println("  Z: ");
 
   //send init PMTK packets to GPS
   GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCGGA); // PMTK_SET_NMEA_OUTPUT_ALLDATA
@@ -134,7 +134,7 @@ void loop() {
   // if you want to debug, this is a good time to do it!
   if ((c) && (GPSECHO))
     Serial.write(c); 
-    
+
   /*DO WE WANT TO DO THIS EVERY 5 seconds?*/
   // if a sentence is received, we can check the checksum, parse it...
   if (GPS.newNMEAreceived()) {
@@ -142,62 +142,77 @@ void loop() {
     // we end up not listening and catching other sentences! 
     // so be very wary if using OUTPUT_ALLDATA and trytng to print out data
     //Serial.println(GPS.lastNMEA());   // this also sets the newNMEAreceived() flag to false
-  
+
     if (!GPS.parse(GPS.lastNMEA()))   // this also sets the newNMEAreceived() flag to false
       return;  // we can fail to parse a sentence in which case we should just wait for another
   }
-  
+
   // if millis() or timer wraps around, we'll just reset it
   if (gps_timer > millis())  gps_timer = millis();
 
   // approximately every 5 seconds or so, print out the current stats
   if (millis() - gps_timer > 5000) { 
     gps_timer = millis(); // reset the timer  
-    
+
     Serial.print("\nTime: ");
-    Serial.print(GPS.hour, DEC); Serial.print(':');
-    Serial.print(GPS.minute, DEC); Serial.print(':');
-    Serial.print(GPS.seconds, DEC); Serial.print('.');
+    Serial.print(GPS.hour, DEC); 
+    Serial.print(':');
+    Serial.print(GPS.minute, DEC); 
+    Serial.print(':');
+    Serial.print(GPS.seconds, DEC); 
+    Serial.print('.');
     Serial.println(GPS.milliseconds);
     Serial.print("Date: ");
-    Serial.print(GPS.day, DEC); Serial.print('/');
-    Serial.print(GPS.month, DEC); Serial.print("/20");
+    Serial.print(GPS.day, DEC); 
+    Serial.print('/');
+    Serial.print(GPS.month, DEC); 
+    Serial.print("/20");
     Serial.println(GPS.year, DEC);
-    Serial.print("Fix: "); Serial.print((int)GPS.fix);
-    Serial.print(" quality: "); Serial.println((int)GPS.fixquality); 
-    
+    Serial.print("Fix: "); 
+    Serial.print((int)GPS.fix);
+    Serial.print(" quality: "); 
+    Serial.println((int)GPS.fixquality); 
+
     tft.setCursor(0, start_y);
     if (!GPS.fix) {
-      tft.print("No GPS fix :(");
+      tft.println("No GPS fix :(");
     }
     else {
       Serial.print("Location: ");
-      Serial.print(GPS.latitude, 4); Serial.print(GPS.lat);
+      Serial.print(GPS.latitude, 4); 
+      Serial.print(GPS.lat);
       Serial.print(", "); 
-      Serial.print(GPS.longitude, 4); Serial.println(GPS.lon);
-      
-      Serial.print("Speed (knots): "); Serial.println(GPS.speed);
-      Serial.print("Angle: "); Serial.println(GPS.angle);
-      Serial.print("Altitude: "); Serial.println(GPS.altitude);
-      Serial.print("Satellites: "); Serial.println((int)GPS.satellites);
-      
+      Serial.print(GPS.longitude, 4); 
+      Serial.println(GPS.lon);
+
+      Serial.print("Speed (knots): "); 
+      Serial.println(GPS.speed);
+      Serial.print("Angle: "); 
+      Serial.println(GPS.angle);
+      Serial.print("Altitude: "); 
+      Serial.println(GPS.altitude);
+      Serial.print("Satellites: "); 
+      Serial.println((int)GPS.satellites);
+
       //print to display (GPS object has other fields for lat/long in different types)
       tft.print("Location: ");
-      tft.print(GPS.latitude); tft.println(GPS.lat); // can tft.print take these args? NO
+      tft.print(GPS.latitude); 
+      tft.println(GPS.lat); // can tft.print take these args? NO
       tft.print(", "); 
-      tft.println(GPS.longitude); tft.println(GPS.lon);
+      tft.println(GPS.longitude); 
+      tft.println(GPS.lon);
     }    
-    
-    
+
+
     /*GPS data calculations*/
     //use lat/long fixed ((int)deg*10^7 + microdegrees = deg*10^7) 
     //convert to radians for calculations
     curr_lat = ((float)GPS.latitude_fixed)/10000000/180*PI;
     curr_lon = ((float)GPS.longitude_fixed)/10000000/180*PI;
-    
+
     delta_lat = (dest_lat/180*PI) - curr_lat;
     delta_lon = (dest_lon/180*PI) - curr_lon;
-    
+
     //sign changes
     if (GPS.lat == 'S')
     {
@@ -207,38 +222,40 @@ void loop() {
     {
       curr_lon *= -1;    
     }
-    bearing = ((atan2(sin(delta_lon)*cos(dest_lat), cos(curr_lat)*sin(dest_lat) - sin(curr_lat)*cos(dest_lat)*cos(delta_lon)) * 180) / PI);
-    bearing += getMagDeclination();
-    
+    bearing = ((atan2(sin(delta_lon)*cos(dest_lat), cos(curr_lat)*sin(dest_lat) - sin(curr_lat)*cos(dest_lat)*cos(delta_lon)) / 180) * PI);
+    //bearing += getMagDeclination();
+
     float a = square(sin(delta_lat)) + cos(curr_lat)*cos(dest_lat)*square(sin(delta_lat));
     float c = 2*atan2(sqrt(a),sqrt(1-a));
     dist_to_dest = c * EARTH_RADIUS;
-    Serial.print("distance to destination"); Serial.println(dist_to_dest);
-    tft.print("distance"); tft.println(dist_to_dest);
+    Serial.print("distance to destination: "); 
+    Serial.println(dist_to_dest);
+    tft.print("dist "); 
+    tft.println(dist_to_dest);
   }
-  
-  
-  
+
+
+
   lsm.read();
   x = (int)lsm.magData.x;
   y = (int)lsm.magData.y;
   z = (int)lsm.magData.z;
-  
-//  tft.setTextColor(text_color);
-//  tft.setCursor(start_x + start_x_offset, start_y + start_y_offset);
-//  tft.println(x);
-//  tft.setCursor(start_x + start_x_offset, start_y + start_y_offset + CHAR_HEIGHT);
-//  tft.println(y);
-//  tft.setCursor(start_x + start_x_offset, start_y + start_y_offset + 2 * CHAR_HEIGHT);
-//  tft.println(z);
 
-//  tft.setTextColor(text_anticolor);
-//  tft.setCursor(start_x + start_x_offset, start_y + start_y_offset);
-//  tft.println(x);
-//  tft.setCursor(start_x + start_x_offset, start_y + start_y_offset + CHAR_HEIGHT);
-//  tft.println(y);
-//  tft.setCursor(start_x + start_x_offset, start_y + start_y_offset + 2 * CHAR_HEIGHT);
-//  tft.println(z);
+  //  tft.setTextColor(text_color);
+  //  tft.setCursor(start_x + start_x_offset, start_y + start_y_offset);
+  //  tft.println(x);
+  //  tft.setCursor(start_x + start_x_offset, start_y + start_y_offset + CHAR_HEIGHT);
+  //  tft.println(y);
+  //  tft.setCursor(start_x + start_x_offset, start_y + start_y_offset + 2 * CHAR_HEIGHT);
+  //  tft.println(z);
+
+  //  tft.setTextColor(text_anticolor);
+  //  tft.setCursor(start_x + start_x_offset, start_y + start_y_offset);
+  //  tft.println(x);
+  //  tft.setCursor(start_x + start_x_offset, start_y + start_y_offset + CHAR_HEIGHT);
+  //  tft.println(y);
+  //  tft.setCursor(start_x + start_x_offset, start_y + start_y_offset + 2 * CHAR_HEIGHT);
+  //  tft.println(z);
 
   // if millis() or timer wraps around, we'll just reset it
   if (display_timer > millis())  display_timer = millis();
@@ -246,30 +263,42 @@ void loop() {
   // approximately every 1 seconds or so, print out the current stats
   if (millis() - display_timer > 1000) { 
     display_timer = millis(); // reset the timer  \
-    
-    tft.setCursor(0, start_y+8*3); //8*3 = 8 pixel text height *3 lines
-    tft.print("  X: "); if(x > 0) tft.print(" "); tft.println(x);
-    tft.print("  Y: "); if(y > 0) tft.print(" "); tft.println(y);
-    tft.print("  Z: "); if(z > 0) tft.print(" "); tft.println(z);
 
-    // Calculate the angle of the vector y,x
-    orientation = (atan2(y,x) * 180) / PI;
-    
-    // Normalize to 0-360
+    tft.setCursor(0, start_y+8*3); //8*3 = 8 pixel text height *3 lines
+    tft.print("  X: "); 
+    if(x > 0) tft.print(" "); 
+    tft.println(x);
+    tft.print("  Y: "); 
+    if(y > 0) tft.print(" "); 
+    tft.println(y);
+    tft.print("  Z: "); 
+    if(z > 0) tft.print(" "); 
+    tft.println(z);
+
+    // Calculate the angle of the vector y,x in radians
+    //orientation = PI + atan2(y,x) + getMagDeclination();
+    orientation = atan2(y,x);
+    // Normalize to 0-2PI
     if (orientation < 0)
     {
-      orientation += 360;
+      orientation += 2*PI;
+    }
+    else if (orientation > 2*PI)
+    {
+      orientation -= 2*PI;
     }
     Serial.print("Device Orientation: ");
     Serial.println(orientation);
-    
+
     float display_bearing = bearing - orientation; // bearing w/ respect to device orientation
     Serial.print("Relative Bearing: ");
     Serial.println(display_bearing);
-    
+
     //might have to reverse/transform directino depending on relative orientations of display to magnetometer
-    tft.drawLine(center_x, center_y, center_x + RAD*sin(display_bearing), center_y + RAD*cos(display_bearing), line_color);
+    tft.drawLine(center_x, center_y, center_x + RAD*sin(orientation), center_y + RAD*cos(orientation), line_color);
+    line_color += 30;
   }
-//  tft.fillRect(4 * CHAR_WIDTH, CHAR_HEIGHT, 4 * CHAR_WIDTH, 3 * CHAR_HEIGHT, ST7735_RED);
-//  tft.drawLine2(center_x, center_y, center_x + x, center_y + y, bg_color, 56);
+  //  tft.fillRect(4 * CHAR_WIDTH, CHAR_HEIGHT, 4 * CHAR_WIDTH, 3 * CHAR_HEIGHT, ST7735_RED);
+  //  tft.drawLine2(center_x, center_y, center_x + x, center_y + y, bg_color, 56);
 }
+

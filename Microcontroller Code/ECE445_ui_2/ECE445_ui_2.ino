@@ -124,18 +124,19 @@ void loop() {
   line_color += 10;
   if(line_color > 0xFFFF)
     line_color = 0;
-  // Calculate the angle of the vector y,x
-  float heading = (atan2(y,x) * 180) / PI;
+  // Calculate the angle of the vector y,x in radians
+  float heading = atan2(y,x);
   
-  // Normalize to 0-360
+  // Normalize to 0-2PI
   if (heading < 0)
   {
-    heading = 360 + heading;
+    heading = 2*PI + heading;
   }
   Serial.print("Compass Heading: ");
   Serial.println(heading);
   
   delay(200);
+  //tft.drawLine(center_x, center_y, center_x + RAD*sin(heading), center_y + RAD*cos(heading), line_color);
 //  tft.fillRect(4 * CHAR_WIDTH, CHAR_HEIGHT, 4 * CHAR_WIDTH, 3 * CHAR_HEIGHT, ST7735_RED);
 //  tft.drawLine2(center_x, center_y, center_x + x, center_y + y, bg_color, 56);
 }

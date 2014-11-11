@@ -58,6 +58,8 @@ uint16_t text_color = ST7735_WHITE, bg_color = ST7735_BLACK,
   line_color = 0xFF00;
 int center_x = 0, center_y = 0;
 
+#define EARTH_RADIUS 6371 // mean Earth's radius in km
+
 float getMagDeclination()
 {
   return 3.0686; // for 61820
@@ -114,13 +116,17 @@ uint32_t gps_timer = millis(); //timer for GPS display update rates
 uint32_t display_timer = millis(); //timer for mag/accel sdisplay update rates
 float bearing = 0; // bearing (in degrees) to destination with respect to True North
 float orientation = 0; //orientation of device with respect to True North (from magnetometer)
+float dist_to_dest = 0; //distance to destination
 
 //current coordinates in units of degrees (from uint32_t GPS.latitude_fixed/longitude_fixed)
 float curr_lat;
 float curr_lon; 
 //destination coordinates in units of degrees TODO::SET THESE
-float dest_lat;
-float dest_lon; 
+float dest_lat = 40.102003; //default to south quad lol
+float dest_lon = -88.227170; 
+
+float delta_lat;
+float delta_lon;
 
 void loop() {
   /*GPS READING*/
@@ -185,8 +191,12 @@ void loop() {
     
     /*GPS data calculations*/
     //use lat/long fixed ((int)deg*10^7 + microdegrees = deg*10^7) 
-    curr_lat = GPS.latitude_fixed;
-    curr_lon = GPS.longitude_fixed;   
+    //convert to radians for calculations
+    curr_lat = ((float)GPS.latitude_fixed)/10000000/180*PI;
+    curr_lon = ((float)GPS.longitude_fixed)/10000000/180*PI;
+    
+    delta_lat = (dest_lat/180*PI) - curr_lat;
+    delta_lon = (dest_lon/180*PI) - curr_lon;
     
     //sign changes
     if (GPS.lat == 'S')
@@ -197,8 +207,14 @@ void loop() {
     {
       curr_lon *= -1;    
     }
-    bearing = ((atan2(sin(dest_lon-curr_lon)*cos(dest_lat), cos(curr_lat)*sin(dest_lat) - sin(curr_lat)*cos(dest_lat)*cos(dest_lon-curr_lon)) * 180) / PI);
+    bearing = ((atan2(sin(delta_lon)*cos(dest_lat), cos(curr_lat)*sin(dest_lat) - sin(curr_lat)*cos(dest_lat)*cos(delta_lon)) * 180) / PI);
     bearing += getMagDeclination();
+    
+    float a = square(sin(delta_lat)) + cos(curr_lat)*cos(dest_lat)*square(sin(delta_lat));
+    float c = 2*atan2(sqrt(a),sqrt(1-a));
+    dist_to_dest = c * EARTH_RADIUS;
+    Serial.print("distance to destination"); Serial.println(dist_to_dest);
+    tft.print("distance"); tft.println(dist_to_dest);
   }
   
   
@@ -231,7 +247,7 @@ void loop() {
   if (millis() - display_timer > 1000) { 
     display_timer = millis(); // reset the timer  \
     
-    tft.setCursor(0, start_y+8*2); //8*2 = 8 pixel text height *2 lines
+    tft.setCursor(0, start_y+8*3); //8*3 = 8 pixel text height *3 lines
     tft.print("  X: "); if(x > 0) tft.print(" "); tft.println(x);
     tft.print("  Y: "); if(y > 0) tft.print(" "); tft.println(y);
     tft.print("  Z: "); if(z > 0) tft.print(" "); tft.println(z);

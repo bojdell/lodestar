@@ -157,7 +157,7 @@ void loop() {
     tft.setCursor(0, start_y);
     if (!GPS.fix)
     {
-      tft.println("No GPS fix :(");
+      tft.println("No GPS fix");
     }
     else {
       Serial.print("Location: ");
@@ -197,7 +197,7 @@ void loop() {
     //------------------------------------------------
     //TODO::UNCOMMENT, BEARING ALWAYS GOES NORTH!!!!
     //------------------------------------------------
-    bearing = 0; //atan2(sin(delta_lon)*cos(dest_lat), cos(curr_lat)*sin(dest_lat) - sin(curr_lat)*cos(dest_lat)*cos(delta_lon));
+    bearing = atan2(sin(delta_lon)*cos(dest_lat), cos(curr_lat)*sin(dest_lat) - sin(curr_lat)*cos(dest_lat)*cos(delta_lon));
     //bearing += getMagDeclination();
     
     float a = square(sin(delta_lat)) + cos(curr_lat)*cos(dest_lat)*square(sin(delta_lat));
@@ -231,16 +231,20 @@ void loop() {
     //no debouncing, because loop times are long enough
     if(HIGH == digitalRead(BUTTON_1)) // if pressed
     {
-      tft.println("1 pressed");
+      //when this button is pressed, device points NORTH, not to destination
+      bearing = 0;
+      tft.println("compass mode");
     }
-    else {tft.println("          "); }
+    else {tft.println("GPS mode     "); }
     if(HIGH == digitalRead(BUTTON_2)) // if pressed
     {
       tft.println("2 pressed");
     }
     else {tft.println("          "); }
+    
     // Calculate the angle of the vector y,x in radians
     //orientation = atan2(y,x); // NOPE, not anymore
+    orientation += getMagDeclination();
     
     // Normalize to 0-360
     if (orientation < 0)

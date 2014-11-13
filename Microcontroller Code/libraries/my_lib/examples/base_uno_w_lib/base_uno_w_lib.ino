@@ -24,7 +24,7 @@ SoftwareSerial mySerial(3, 2);
 Adafruit_GPS GPS(&mySerial);
 
 
-#define GPSECHO  false // for debugging
+#define GPSECHO  true // for debugging
 
 //const float PI = 3.1415926;
 
@@ -43,9 +43,31 @@ float getMagDeclination()
   return -3.0686/180*PI; // for 61820
 }
 
+// this keeps track of whether we're using the interrupt
+// off by default!
+boolean usingInterrupt = false;
+void useInterrupt(boolean); // Func prototype keeps Arduino 0023 happy
+
 void setup(void) {
   Serial.begin(115200); // this might need to be bigger to accomodate printing NMEA sentences on serial monitor
   GPS.begin(9600); // initialize hardware serial for GPS
+  
+  //send init PMTK packets to GPS
+  GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCGGA); // PMTK_SET_NMEA_OUTPUT_ALLDATA
+  GPS.sendCommand(PMTK_SET_NMEA_UPDATE_1HZ);
+    // Request updates on antenna status, comment out to keep quiet
+  GPS.sendCommand(PGCMD_ANTENNA);
+
+  // the nice thing about this code is you can have a timer0 interrupt go off
+  // every 1 millisecond, and read data from the GPS for you. that makes the
+  // loop code a heck of a lot easier!
+  useInterrupt(true);
+  // Ask for firmware version
+  mySerial.println(PMTK_Q_RELEASE);
+
+  delay(1000);
+  // Ask for firmware version
+  mySerial.println(PMTK_Q_RELEASE);
 
   // Use this initializer if you're using a 1.8" TFT
   tft.initR(INITR_BLACKTAB);   // initialize a ST7735S chip, black tab
@@ -88,10 +110,32 @@ void setup(void) {
 //  tft.println("X: ");
 //  tft.println("  Y: ");
 //  tft.println("  Z: ");
+}
 
-  //send init PMTK packets to GPS
-  GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCGGA); // PMTK_SET_NMEA_OUTPUT_ALLDATA
-  GPS.sendCommand(PMTK_SET_NMEA_UPDATE_1HZ);
+// Interrupt is called once a millisecond, looks for any new GPS data, and stores it
+SIGNAL(TIMER0_COMPA_vect) {
+  char c = GPS.read();
+  // if you want to debug, this is a good time to do it!
+#ifdef UDR0
+  if (GPSECHO)
+    if (c) UDR0 = c;  
+    // writing direct to UDR0 is much much faster than Serial.print 
+    // but only one character can be written at a time. 
+#endif
+}
+
+void useInterrupt(boolean v) {
+  if (v) {
+    // Timer0 is already used for millis() - we'll just interrupt somewhere
+    // in the middle and call the "Compare A" function above
+    OCR0A = 0xAF;
+    TIMSK0 |= _BV(OCIE0A);
+    usingInterrupt = true;
+  } else {
+    // do not call the interrupt function COMPA anymore
+    TIMSK0 &= ~_BV(OCIE0A);
+    usingInterrupt = false;
+  }
 }
 
 int x = 0, y = 0, z = 0;
@@ -106,8 +150,8 @@ float dist_to_dest = 0; //distance to destination
 float curr_lat;
 float curr_lon; 
 //destination coordinates in units of degrees TODO::SET THESE
-float dest_lat = 40.102003; //default to south quad lol
-float dest_lon = -88.227170; 
+float dest_lat = 40.102003/180*PI; //default to south quad lol
+float dest_lon = -88.227170/180*PI; 
 
 float delta_lat;
 float delta_lon;
@@ -116,12 +160,19 @@ float delta_lon;
 int16_t mag_min[3] = { -408,  -585,  -1149 };
 int16_t mag_max[3] = {  508,   370,   173  };
 
+boolean fake_fix = false;
+
 void loop() {
   /*GPS READING*/
-  char c = GPS.read();
-  // if you want to debug, this is a good time to do it!
-  if ((c) && (GPSECHO))
-    Serial.write(c); 
+  // in case you are not using the interrupt above, you'll
+  // need to 'hand query' the GPS, not suggested :(
+  if (! usingInterrupt) {
+    // read data from the GPS in the 'main loop'
+    char c = GPS.read();
+    // if you want to debug, this is a good time to do it!
+    if (GPSECHO)
+      if (c) Serial.print(c);
+  }
     
   /*DO WE WANT TO DO THIS EVERY 5 seconds?*/
   // if a sentence is received, we can check the checksum, parse it...
@@ -157,7 +208,7 @@ void loop() {
     tft.setCursor(0, start_y);
     if (!GPS.fix)
     {
-      tft.println("No GPS fix");
+      tft.println("No fix");
     }
     else {
       Serial.print("Location: ");
@@ -173,40 +224,42 @@ void loop() {
       //print to display (GPS object has other fields for lat/long in different types)
       tft.print(GPS.latitude); tft.println(GPS.lat); // can tft.print take these args? NO
       tft.print(GPS.longitude); tft.println(GPS.lon);
+      
+      //use lat/long fixed ((int)deg*10^7 + microdegrees = deg*10^7) 
+      //convert to radians for calculations
+      curr_lat = ((float)GPS.latitude_fixed)/10000000/180*PI;
+      curr_lon = ((float)GPS.longitude_fixed)/10000000/180*PI;
+      
+      //sign changes
+      if (GPS.lat == 'S')
+      {
+        curr_lat *= -1;
+      }
+      if (GPS.lon == 'W') //TODO::CHECK CONVENTIONS 
+      {
+        curr_lon *= -1;    
+      }
     }    
     
     
     /*GPS data calculations*/
-    //use lat/long fixed ((int)deg*10^7 + microdegrees = deg*10^7) 
-    //convert to radians for calculations
-    curr_lat = ((float)GPS.latitude_fixed)/10000000/180*PI;
-    curr_lon = ((float)GPS.longitude_fixed)/10000000/180*PI;
     
-    delta_lat = (dest_lat/180*PI) - curr_lat;
-    delta_lon = (dest_lon/180*PI) - curr_lon;
-    
-    //sign changes
-    if (GPS.lat == 'S')
-    {
-      curr_lat *= -1;
-    }
-    if (GPS.lon == 'W') //TODO::CHECK CONVENTIONS 
-    {
-      curr_lon *= -1;    
-    }
-    //------------------------------------------------
-    //TODO::UNCOMMENT, BEARING ALWAYS GOES NORTH!!!!
-    //------------------------------------------------
+    delta_lat = dest_lat - curr_lat;
+    delta_lon = dest_lon - curr_lon;
+
     bearing = atan2(sin(delta_lon)*cos(dest_lat), cos(curr_lat)*sin(dest_lat) - sin(curr_lat)*cos(dest_lat)*cos(delta_lon));
-    //bearing += getMagDeclination();
     
-    float a = square(sin(delta_lat)) + cos(curr_lat)*cos(dest_lat)*square(sin(delta_lat));
+    float a = square(sin(delta_lat / 2)) + cos(curr_lat)*cos(dest_lat)*square(sin(delta_lon / 2));
     float c = 2*atan2(sqrt(a),sqrt(1-a));
     dist_to_dest = c * EARTH_RADIUS;
     Serial.print("distance to destination: "); Serial.println(dist_to_dest);
     tft.print("distance: "); tft.println(dist_to_dest);
   }
   
+  Serial.print("curr_lat: "); Serial.println(curr_lat*180/PI, 4);
+  Serial.print("curr_lon: "); Serial.println(curr_lon*180/PI, 4);
+  Serial.print("bearing: "); Serial.println(bearing*180/PI);
+  Serial.print("distance: "); Serial.println(dist_to_dest);
 
   // if millis() or timer wraps around, we'll just reset it
   if (display_timer > millis())  display_timer = millis();
@@ -218,7 +271,7 @@ void loop() {
     //get orientation, calls lsm.read()
     orientation = my_lib::calc_heading(lsm, mag_min, mag_max);  
       
-    //lsm.read();
+    lsm.read();
     x = (int)lsm.magData.x;
     y = (int)lsm.magData.y;
     z = (int)lsm.magData.z;
@@ -239,8 +292,13 @@ void loop() {
     if(HIGH == digitalRead(BUTTON_2)) // if pressed
     {
       tft.println("2 pressed");
+      
+      //fake location to ~statues in north quad
+      curr_lat = 40.114961/180*PI;
+      curr_lon = -88.227322/180*PI;
+      fake_fix = true;
     }
-    else {tft.println("          "); }
+    else {tft.println("          "); fake_fix = false; }
     
     // Calculate the angle of the vector y,x in radians
     //orientation = atan2(y,x); // NOPE, not anymore

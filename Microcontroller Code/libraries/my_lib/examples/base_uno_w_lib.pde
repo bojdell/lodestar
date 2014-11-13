@@ -15,8 +15,9 @@
 #define TFT_CS     10
 #define TFT_RST    9
 #define TFT_DC     8
-#define TFT_SCLK   13 // not needed
-#define TFT_MOSI   11 // not needed
+#define BUTTON_1   7
+#define BUTTON_2   6
+
 Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST); // display
 Adafruit_LSM303 lsm; // mag/accel
 SoftwareSerial mySerial(3, 2);
@@ -53,7 +54,11 @@ void setup(void) {
   //tft.initR(INITR_144GREENTAB);   // initialize a ST7735S chip, black tab
 
   Serial.println("Initialized");
-
+  
+  //push buttons
+  pinMode(BUTTON_1, INPUT); 
+  pinMode(BUTTON_2, INPUT); 
+  
   // Try to initialise and warn if we couldn't detect the chip
   if (!lsm.begin())
   {
@@ -222,7 +227,18 @@ void loop() {
     tft.print("  X: "); if(x >= 0) tft.print(" "); if(abs(x) < 100) tft.print(" "); if(abs(x) < 10) tft.print(" "); tft.println(x);
     tft.print("  Y: "); if(y >= 0) tft.print(" "); if(abs(y) < 100) tft.print(" "); if(abs(y) < 10) tft.print(" "); tft.println(y);
     tft.print("  Z: "); if(z >= 0) tft.print(" "); if(abs(z) < 100) tft.print(" "); if(abs(z) < 10) tft.print(" "); tft.println(z);
-
+    
+    //no debouncing, because loop times are long enough
+    if(HIGH == digitalRead(BUTTON_1)) // if pressed
+    {
+      tft.println("1 pressed");
+    }
+    else {tft.println("          "); }
+    if(HIGH == digitalRead(BUTTON_2)) // if pressed
+    {
+      tft.println("2 pressed");
+    }
+    else {tft.println("          "); }
     // Calculate the angle of the vector y,x in radians
     //orientation = atan2(y,x); // NOPE, not anymore
     
@@ -244,6 +260,4 @@ void loop() {
     //Y IS NEGATED BECAUSE HIGHER Y VALUES ARE LOWER ON THE SCREEN!!! NOT CARTESIAN
     tft.drawLine(center_x, center_y, center_x + RAD*sin(display_bearing), center_y - RAD*cos(display_bearing), line_color); //TODO::CHECK sin and cos
   }
-//  tft.fillRect(4 * CHAR_WIDTH, CHAR_HEIGHT, 4 * CHAR_WIDTH, 3 * CHAR_HEIGHT, ST7735_RED);
-//  tft.drawLine2(center_x, center_y, center_x + x, center_y + y, bg_color, 56);
 }

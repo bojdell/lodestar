@@ -45,15 +45,20 @@ uint16_t text_color = ST7735_WHITE, bg_color = ST7735_BLACK,
   line_color = LINE_COLOR_DEFAULT;
 int center_x = 0, center_y = 0;
 float locs[NUM_LOCS][2] = {
-  { 40.102003/180*PI, -88.227170/180*PI },
-  { 40.102003/180*PI, -88.227170/180*PI },
-  { 40.102003/180*PI, -88.227170/180*PI }
+  { 40.102003/180*PI, -88.227170/180*PI },      // UIUC South Quad: 
+  { 40.7056308/180*PI, -73.9780035/180*PI },    // NYC:              40.7056308,-73.9780035
+  { 37.7682682/180*PI, -122.4311711/180*PI }    // SF:               37.7682682,-122.4311711
 };
 int curr_loc = 0;
 const int LOC_START_X = 2 * CHAR_WIDTH;
-const int LOC_START_Y = 120;
+const int LOC_START_Y = tft.height() - CHAR_HEIGHT;
 const uint16_t HIGHLIGHT_TEXT = ST7735_BLACK;
 const uint16_t HIGHLIGHT_BG = 0xFF00;
+
+const int MODE_START_X = 0;
+const int MODE_START_Y = 4 * CHAR_HEIGHT;
+
+boolean compass_mode = true;
 
 #define EARTH_RADIUS 6371000 // mean Earth's radius in km
 
@@ -82,6 +87,7 @@ void updateLocText(int loc) {
       tft.print(" ");
     }
   }
+  return;
 }
 
 void setup(void) {
@@ -144,7 +150,7 @@ void setup(void) {
   center_x = tft.width() / 2;
   center_y = tft.height() / 2 + 22;
   
-  tft.drawCircle(center_x, center_y, CENTER_RAD, text_color);
+//  tft.drawCircle(center_x, center_y, CENTER_RAD, text_color);
   
   tft.drawLine(center_x, center_y, center_x + R2*sin( ((float)NAV_LIMIT)/180 * PI ), center_y - R2*cos( ((float)NAV_LIMIT)/180 * PI ), text_color);
   tft.drawLine(center_x, center_y, center_x + R2*sin( -1 * ((float)NAV_LIMIT)/180 * PI ), center_y - R2*cos( -1 * ((float)NAV_LIMIT)/180 * PI ), text_color);
@@ -279,8 +285,7 @@ void loop() {
       {
         curr_lon *= -1;    
       }
-    }    
-    
+    }
     
     /*GPS data calculations*/
     
@@ -301,51 +306,52 @@ void loop() {
   Serial.print("bearing: "); Serial.println(bearing*180/PI);
   Serial.print("distance: "); Serial.println(dist_to_dest);
 
+  //no debouncing, because loop times are long enough
+  if(HIGH == digitalRead(BUTTON_1)) // if pressed
+  {
+    //when this button is pressed, device points NORTH, not to destination
+    bearing = 0;
+    if(!compass_mode)
+      compass_mode = true;
+  }
+  else {
+    if(compass_mode)
+      compass_mode = false;
+  }
+  if(HIGH == digitalRead(BUTTON_2)) // if pressed
+  { 
+    //fake location to ~statues in north quad
+    curr_lat = 40.114961/180*PI;
+    curr_lon = -88.227322/180*PI;
+    fake_fix = true;
+  }
+  else { fake_fix = false; }
+  if(HIGH == digitalRead(BUTTON_3)) // if pressed
+  {
+    //when this button is pressed, update the current location being navigated to
+    curr_loc++;
+    if(curr_loc == NUM_LOCS)
+      curr_loc = 0;
+    updateLocText(curr_loc);
+    dest_lat = locs[curr_loc][0];
+    dest_lon = locs[curr_loc][1];
+  }
+
   // if millis() or timer wraps around, we'll just reset it
   if (display_timer > millis())  display_timer = millis();
 
   // approximately every <TODO, ~400ms is okay...> seconds or so, print out the current stats
   if (millis() - display_timer > 150) { 
     display_timer = millis(); // reset the timer  \
+
+    tft.setCursor(MODE_START_X, MODE_START_Y);
+    if(compass_mode)
+      tft.println("Compass mode");
+    else
+      tft.println("GPS mode    ");
     
     //get orientation, calls lsm.read()
     orientation = my_lib::calc_heading(lsm, mag_min, mag_max);  
-      
-    lsm.read();
-    x = (int)lsm.magData.x;
-    y = (int)lsm.magData.y;
-    z = (int)lsm.magData.z;
-    
-    tft.setCursor(0, start_y+8*3); //8*3 = 8 pixel text height *3 lines
-    tft.print("  X: "); if(x >= 0) tft.print(" "); if(abs(x) < 100) tft.print(" "); if(abs(x) < 10) tft.print(" "); tft.println(x);
-    tft.print("  Y: "); if(y >= 0) tft.print(" "); if(abs(y) < 100) tft.print(" "); if(abs(y) < 10) tft.print(" "); tft.println(y);
-    tft.print("  Z: "); if(z >= 0) tft.print(" "); if(abs(z) < 100) tft.print(" "); if(abs(z) < 10) tft.print(" "); tft.println(z);
-    
-    //no debouncing, because loop times are long enough
-    if(HIGH == digitalRead(BUTTON_1)) // if pressed
-    {
-      //when this button is pressed, device points NORTH, not to destination
-      bearing = 0;
-      tft.println("compass mode");
-    }
-    else {tft.println("GPS mode     "); }
-    if(HIGH == digitalRead(BUTTON_2)) // if pressed
-    {
-      tft.println("2 pressed");
-      
-      //fake location to ~statues in north quad
-      curr_lat = 40.114961/180*PI;
-      curr_lon = -88.227322/180*PI;
-      fake_fix = true;
-    }
-    else {tft.println("          "); fake_fix = false; }
-    if(HIGH == digitalRead(BUTTON_3)) // if pressed
-    {
-      //when this button is pressed, update the current location being navigated to
-      updateLocText(++curr_loc);
-      dest_lat = locs[curr_loc][0];
-      dest_lon = locs[curr_loc][1];
-    }
     
     // Calculate the angle of the vector y,x in radians
     //orientation = atan2(y,x); // NOPE, not anymore

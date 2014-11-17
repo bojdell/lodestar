@@ -17,22 +17,26 @@
 #define TFT_DC     8
 #define BUTTON_1   7
 #define BUTTON_2   6
+#define BUTTON_3   5
+#define BUTTON_4   4
 
 Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST); // display
 Adafruit_LSM303 lsm; // mag/accel
 SoftwareSerial mySerial(3, 2);
 Adafruit_GPS GPS(&mySerial);
 
-
 #define GPSECHO  true // for debugging
 
 //const float PI = 3.1415926;
 
 const int CHAR_WIDTH = 6, CHAR_HEIGHT = 8;
-const int RAD = 46;
-const int R2 = RAD - 6;
-const float THETA = PI / 10;
-const int NAV_LIMIT = 10;
+const int RAD = 46;           // radius of outermost arrow tip
+const int R2 = RAD - 6;       // radius of arrow tips
+const int CENTER_RAD = 30;    // radius of center circle
+const float THETA = PI / 10;  // angle to arrow tips in rad
+const int NAV_LIMIT = 10;     // nav limit in deg
+const int NAV_LIMIT_LEN = 15; // length of NAV_LIMIT lines in pixels
+const int NUM_LOCS = 3;
 const uint16_t LINE_COLOR_DEFAULT = 0xFF00;
 const uint16_t LINE_COLOR_SUCCESS = ST7735_GREEN;
 int start_x = 2 * CHAR_WIDTH, start_y = CHAR_HEIGHT;
@@ -40,6 +44,16 @@ int start_x_offset = 4 * CHAR_WIDTH, start_y_offset = 0;
 uint16_t text_color = ST7735_WHITE, bg_color = ST7735_BLACK,
   line_color = LINE_COLOR_DEFAULT;
 int center_x = 0, center_y = 0;
+float locs[NUM_LOCS][2] = {
+  { 40.102003/180*PI, -88.227170/180*PI },
+  { 40.102003/180*PI, -88.227170/180*PI },
+  { 40.102003/180*PI, -88.227170/180*PI }
+};
+int curr_loc = 0;
+const int LOC_START_X = 2 * CHAR_WIDTH;
+const int LOC_START_Y = 120;
+const uint16_t HIGHLIGHT_TEXT = ST7735_BLACK;
+const uint16_t HIGHLIGHT_BG = 0xFF00;
 
 #define EARTH_RADIUS 6371000 // mean Earth's radius in km
 
@@ -52,6 +66,23 @@ float getMagDeclination()
 // off by default!
 boolean usingInterrupt = false;
 void useInterrupt(boolean); // Func prototype keeps Arduino 0023 happy
+
+void updateLocText(int loc) {
+  tft.setCursor(LOC_START_X, LOC_START_Y);
+  tft.print("Loc: ");
+  for(int i = 0; i < NUM_LOCS; i++) {
+    if(i == loc) {
+      tft.setTextColor(HIGHLIGHT_TEXT, HIGHLIGHT_BG);
+      tft.print(i+1);
+      tft.setTextColor(text_color, bg_color);
+      tft.print(" ");
+    }
+    else {
+      tft.print(i+1);
+      tft.print(" ");
+    }
+  }
+}
 
 void setup(void) {
   Serial.begin(115200); // this might need to be bigger to accomodate printing NMEA sentences on serial monitor
@@ -84,7 +115,9 @@ void setup(void) {
   
   //push buttons
   pinMode(BUTTON_1, INPUT); 
-  pinMode(BUTTON_2, INPUT); 
+  pinMode(BUTTON_2, INPUT);
+  pinMode(BUTTON_3, INPUT); 
+  pinMode(BUTTON_4, INPUT); 
   
   // Try to initialise and warn if we couldn't detect the chip
   if (!lsm.begin())
@@ -111,13 +144,12 @@ void setup(void) {
   center_x = tft.width() / 2;
   center_y = tft.height() / 2 + 22;
   
-//  tft.drawLine(center_x, center_y, center_x + R2*sin( ((float)NAV_LIMIT)/180 * PI ), center_y - R2*cos( ((float)NAV_LIMIT)/180 * PI ), text_color);
-//  tft.drawLine(center_x, center_y, center_x + R2*sin( -1 * ((float)NAV_LIMIT)/180 * PI ), center_y - R2*cos( -1 * ((float)NAV_LIMIT)/180 * PI ), text_color);
+  tft.drawCircle(center_x, center_y, CENTER_RAD, text_color);
   
-//  tft.setCursor(start_x, start_y);
-//  tft.println("X: ");
-//  tft.println("  Y: ");
-//  tft.println("  Z: ");
+  tft.drawLine(center_x, center_y, center_x + R2*sin( ((float)NAV_LIMIT)/180 * PI ), center_y - R2*cos( ((float)NAV_LIMIT)/180 * PI ), text_color);
+  tft.drawLine(center_x, center_y, center_x + R2*sin( -1 * ((float)NAV_LIMIT)/180 * PI ), center_y - R2*cos( -1 * ((float)NAV_LIMIT)/180 * PI ), text_color);
+  
+  updateLocText(curr_loc);
 }
 
 // Interrupt is called once a millisecond, looks for any new GPS data, and stores it
@@ -307,6 +339,13 @@ void loop() {
       fake_fix = true;
     }
     else {tft.println("          "); fake_fix = false; }
+    if(HIGH == digitalRead(BUTTON_3)) // if pressed
+    {
+      //when this button is pressed, update the current location being navigated to
+      updateLocText(++curr_loc);
+      dest_lat = locs[curr_loc][0];
+      dest_lon = locs[curr_loc][1];
+    }
     
     // Calculate the angle of the vector y,x in radians
     //orientation = atan2(y,x); // NOPE, not anymore

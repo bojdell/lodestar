@@ -29,11 +29,16 @@ Adafruit_GPS GPS(&mySerial);
 //const float PI = 3.1415926;
 
 const int CHAR_WIDTH = 6, CHAR_HEIGHT = 8;
-const int RAD = 56;
+const int RAD = 46;
+const int R2 = RAD - 6;
+const float THETA = PI / 10;
+const int NAV_LIMIT = 10;
+const uint16_t LINE_COLOR_DEFAULT = 0xFF00;
+const uint16_t LINE_COLOR_SUCCESS = ST7735_GREEN;
 int start_x = 2 * CHAR_WIDTH, start_y = CHAR_HEIGHT;
 int start_x_offset = 4 * CHAR_WIDTH, start_y_offset = 0;
 uint16_t text_color = ST7735_WHITE, bg_color = ST7735_BLACK,
-  line_color = 0xFF00;
+  line_color = LINE_COLOR_DEFAULT;
 int center_x = 0, center_y = 0;
 
 #define EARTH_RADIUS 6371000 // mean Earth's radius in km
@@ -105,6 +110,9 @@ void setup(void) {
   
   center_x = tft.width() / 2;
   center_y = tft.height() / 2 + 22;
+  
+//  tft.drawLine(center_x, center_y, center_x + R2*sin( ((float)NAV_LIMIT)/180 * PI ), center_y - R2*cos( ((float)NAV_LIMIT)/180 * PI ), text_color);
+//  tft.drawLine(center_x, center_y, center_x + R2*sin( -1 * ((float)NAV_LIMIT)/180 * PI ), center_y - R2*cos( -1 * ((float)NAV_LIMIT)/180 * PI ), text_color);
   
 //  tft.setCursor(start_x, start_y);
 //  tft.println("X: ");
@@ -312,14 +320,37 @@ void loop() {
     //Serial.print("Device Orientation: ");
     //Serial.println(orientation*180/PI);
     
-    tft.drawLine(center_x, center_y, center_x + RAD*sin(display_bearing), center_y - RAD*cos(display_bearing), bg_color); // clear old line
-    
+//    tft.drawLine(center_x, center_y, center_x + RAD*sin(display_bearing), center_y - RAD*cos(display_bearing), bg_color); // clear old line
+
+    tft.drawLine(center_x + RAD*sin(display_bearing), center_y - RAD*cos(display_bearing),
+      center_x + R2*sin(display_bearing + THETA), center_y - R2*cos(display_bearing + THETA), bg_color);
+    tft.drawLine(center_x + RAD*sin(display_bearing), center_y - RAD*cos(display_bearing),
+      center_x + R2*sin(display_bearing - THETA), center_y - R2*cos(display_bearing - THETA), bg_color);
+
     display_bearing = bearing - orientation; // bearing w/ respect to device orientation
     Serial.print("Relative Bearing: ");
-    Serial.println(display_bearing*180/PI);
+    Serial.print(abs(display_bearing*180/PI));
+    Serial.print(" : ");
+    Serial.println(NAV_LIMIT);
+
+    if(abs(display_bearing*180/PI) < NAV_LIMIT) {
+      if (line_color != LINE_COLOR_SUCCESS) {
+        line_color = LINE_COLOR_SUCCESS;
+      }
+    }
+    else {
+      if (line_color != LINE_COLOR_DEFAULT) {
+        line_color = LINE_COLOR_DEFAULT;
+      }
+    }
     
     //might have to reverse/transform direction depending on relative orientations of display to magnetometer
     //Y IS NEGATED BECAUSE HIGHER Y VALUES ARE LOWER ON THE SCREEN!!! NOT CARTESIAN
-    tft.drawLine(center_x, center_y, center_x + RAD*sin(display_bearing), center_y - RAD*cos(display_bearing), line_color); //TODO::CHECK sin and cos
+//    tft.drawLine(center_x, center_y, center_x + RAD*sin(display_bearing), center_y - RAD*cos(display_bearing), line_color); //TODO::CHECK sin and cos
+    
+    tft.drawLine(center_x + RAD*sin(display_bearing), center_y - RAD*cos(display_bearing),
+      center_x + R2*sin(display_bearing + THETA), center_y - R2*cos(display_bearing + THETA), line_color);
+    tft.drawLine(center_x + RAD*sin(display_bearing), center_y - RAD*cos(display_bearing),
+      center_x + R2*sin(display_bearing - THETA), center_y - R2*cos(display_bearing - THETA), line_color);
   }
 }

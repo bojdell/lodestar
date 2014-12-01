@@ -94,6 +94,7 @@ const int BUTTON_PRESS_LONG = 600;   // milliseconds until a long button press i
 
 // Misc.
 #define EARTH_RADIUS 6371000        // mean Earth's radius in km
+const int CLOSE_TO_DEST = 15;       // within this radius we will alert user they are close to dest
 
 /****************************************
  * BEGIN FUNCTIONS
@@ -338,7 +339,17 @@ void loop() {
     float c = 2*atan2(sqrt(a),sqrt(1-a));
     dist_to_dest = c * EARTH_RADIUS;
 //    Serial.print("distance to destination: "); Serial.println((int)dist_to_dest);
-    tft.print("Dist: "); tft.print((int)dist_to_dest); tft.println(" m");
+
+    tft.print("Dist: ");
+    if(dist_to_dest <= CLOSE_TO_DEST) {
+      tft.setTextColor(TEXT_COLOR_HIGHLIGHT, BG_COLOR_HIGHLIGHT);
+      tft.print((int)dist_to_dest); tft.print(" m");
+      tft.setTextColor(TEXT_COLOR_DEFAULT, BG_COLOR_DEFAULT);
+    }
+    else {
+      tft.print((int)dist_to_dest); tft.print(" m");
+    }
+    tft.println("     ");
   }
   
 //  Serial.print("curr_lat: "); Serial.println(curr_lat*180/PI, 4);

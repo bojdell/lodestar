@@ -18,6 +18,7 @@
 #include <Adafruit_GPS.h>
 #include <my_lib.h>
 #include <SoftwareSerial.h>
+#include <avr/eeprom.h>
 
 /****************************************
  * PINS
@@ -42,7 +43,7 @@ Adafruit_LSM303 lsm;
 // GPS
 SoftwareSerial mySerial(3, 2);
 Adafruit_GPS GPS(&mySerial);
-#define GPSECHO  true // for debugging
+#define GPSECHO  false // for debugging
 
 /****************************************
  * GLOBAL VARS & CONSTANTS
@@ -71,29 +72,28 @@ const int GUIDELINE_ANGLE = 10;         // angle in deg of nav guidelines
 
 // Locations
 const int NUM_LOCS = 3;                 // number of locations we have stored
-float locs[NUM_LOCS][2] = {
-  { 40.102003/180*PI, -88.227170/180*PI },      // UIUC South Quad:  40.102003, -88.227170
-  { 40.7056308/180*PI, -73.9780035/180*PI },    // NYC:              40.7056308, -73.9780035
-  { 37.7682682/180*PI, -122.4311711/180*PI }    // SF:               37.7682682, -122.4311711
-};
-int curr_loc = 0;                               // the location we are currently navigating to
+float locs[NUM_LOCS][2];                // data structure to hold stored locations. data persists in EEPROM and is read in during init()
+int curr_loc = 0;                       // the location we are currently navigating to
 
 // coordinates for drawing location
 const int LOC_START_X = 2 * CHAR_WIDTH;
 const int LOC_START_Y = tft.height() - CHAR_HEIGHT;
 
 // Device Modes
-const uint8_t NORMAL_MODE = 0;    // device operates "normally", i.e. it navigates to currently selected location
-const uint8_t COMPASS_MODE = 1;   // device operates as a compass, and the navigation arrow points North
-const uint8_t DEBUG_MODE = 2;     // device operates in debug mode, displaying extra sensor and state data to display
+const uint8_t NORMAL_MODE = 0;      // device operates "normally", i.e. it navigates to currently selected location
+const uint8_t COMPASS_MODE = 1;     // device operates as a compass, and the navigation arrow points North
+const uint8_t DEBUG_MODE = 2;       // device operates in debug mode, displaying extra sensor and state data to display
 uint8_t device_mode = COMPASS_MODE; // initialize device mode
 
 // coordinates for drawing device mode
 const int MODE_START_X = 0;
 const int MODE_START_Y = 4 * CHAR_HEIGHT;
 
+// Buttons
+const int BUTTON_PRESS_LONG = 600;   // milliseconds until a long button press is registered (used to set current location)  
+
 // Misc.
-#define EARTH_RADIUS 6371000 // mean Earth's radius in km
+#define EARTH_RADIUS 6371000        // mean Earth's radius in km
 
 /****************************************
  * BEGIN FUNCTIONS
@@ -102,7 +102,7 @@ const int MODE_START_Y = 4 * CHAR_HEIGHT;
 // returns the magnetic declination for our current location
 float getMagDeclination()
 {
-  return -3.0686/180*PI; // for 61820 zip code
+  return -3.0686/180*PI;            // for 61820 zip code
 }
 
 // TODO:
@@ -139,6 +139,8 @@ void setup(void) {
   GPS.sendCommand(PMTK_SET_NMEA_UPDATE_1HZ);
     // Request updates on antenna status, comment out to keep quiet
   GPS.sendCommand(PGCMD_ANTENNA);
+  
+  eeprom_read_block((void*)&locs, (void*)0, 2*NUM_LOCS*sizeof(float));
 
   // the nice thing about this code is you can have a timer0 interrupt go off
   // every 1 millisecond, and read data from the GPS for you. that makes the
@@ -220,9 +222,12 @@ void useInterrupt(boolean v) {
 int x = 0, y = 0, z = 0;
 uint32_t gps_timer = millis(); //timer for GPS display update rates
 uint32_t display_timer = millis(); //timer for mag/accel sdisplay update rates
+uint32_t loc_reset_timer = millis(); // timer for long button press
 float bearing = 0; // bearing (in degrees) to destination with respect to True North
 float display_bearing = 0;
 float orientation = 0; //orientation of device with respect to True North (from magnetometer)
+float smoothed_orientation = 0; // smoothed orientation
+float filterVal = .5; // filter value: 0 = no smoothing, 1 = no update (filters everything!)
 float dist_to_dest = 0; //distance to destination
 
 //current coordinates in units of degrees (from uint32_t GPS.latitude_fixed/longitude_fixed)
@@ -237,8 +242,8 @@ float delta_lon;
 
 boolean button3 = false;
 
-int16_t mag_min[3] = { -408,  -585,  -1149 };
-int16_t mag_max[3] = {  508,   370,   173  };
+int16_t mag_min[3] = { -385,  -638, -1228 }; //{ -408,  -585,  -1149 };
+int16_t mag_max[3] = {  601,   448,   372 }; //{  508,   370,   173  };
 
 boolean fake_fix = false;
 
@@ -273,17 +278,17 @@ void loop() {
   if (millis() - gps_timer > 5000) { 
     gps_timer = millis(); // reset the timer  
     
-    Serial.print("\nTime: ");
-    Serial.print(GPS.hour, DEC); Serial.print(':');
-    Serial.print(GPS.minute, DEC); Serial.print(':');
-    Serial.print(GPS.seconds, DEC); Serial.print('.');
-    Serial.println(GPS.milliseconds);
-    Serial.print("Date: ");
-    Serial.print(GPS.day, DEC); Serial.print('/');
-    Serial.print(GPS.month, DEC); Serial.print("/20");
-    Serial.println(GPS.year, DEC);
-    Serial.print("Fix: "); Serial.print((int)GPS.fix);
-    Serial.print(" quality: "); Serial.println((int)GPS.fixquality); 
+//    Serial.print("\nTime: ");
+//    Serial.print(GPS.hour, DEC); Serial.print(':');
+//    Serial.print(GPS.minute, DEC); Serial.print(':');
+//    Serial.print(GPS.seconds, DEC); Serial.print('.');
+//    Serial.println(GPS.milliseconds);
+//    Serial.print("Date: ");
+//    Serial.print(GPS.day, DEC); Serial.print('/');
+//    Serial.print(GPS.month, DEC); Serial.print("/20");
+//    Serial.println(GPS.year, DEC);
+//    Serial.print("Fix: "); Serial.print((int)GPS.fix);
+//    Serial.print(" quality: "); Serial.println((int)GPS.fixquality); 
     
     tft.setCursor(0, CHAR_HEIGHT);
     if (!GPS.fix)
@@ -332,20 +337,20 @@ void loop() {
     float a = square(sin(delta_lat / 2)) + cos(curr_lat)*cos(dest_lat)*square(sin(delta_lon / 2));
     float c = 2*atan2(sqrt(a),sqrt(1-a));
     dist_to_dest = c * EARTH_RADIUS;
-    Serial.print("distance to destination: "); Serial.println((int)dist_to_dest);
+//    Serial.print("distance to destination: "); Serial.println((int)dist_to_dest);
     tft.print("Dist: "); tft.print((int)dist_to_dest); tft.println(" m");
   }
   
-  Serial.print("curr_lat: "); Serial.println(curr_lat*180/PI, 4);
-  Serial.print("curr_lon: "); Serial.println(curr_lon*180/PI, 4);
-  Serial.print("bearing: "); Serial.println(bearing*180/PI);
-  Serial.print("distance: "); Serial.println(dist_to_dest);
+//  Serial.print("curr_lat: "); Serial.println(curr_lat*180/PI, 4);
+//  Serial.print("curr_lon: "); Serial.println(curr_lon*180/PI, 4);
+//  Serial.print("bearing: "); Serial.println(bearing*180/PI);
+//  Serial.print("distance: "); Serial.println(dist_to_dest);
 
   //no debouncing, because loop times are long enough
   if(HIGH == digitalRead(BUTTON_1)) // if pressed
   {
     //when this button is pressed, switch to compass mode (i.e. arrow points North, not to destination)
-    bearing = 0;
+    //bearing = 0;
     if(device_mode == NORMAL_MODE)
       device_mode = COMPASS_MODE;
   }
@@ -379,6 +384,18 @@ void loop() {
     if(button3)
       button3 = false;
   }
+  // if button 4 held for a long press, set the current location
+  if(HIGH == digitalRead(BUTTON_4))
+  {
+    if(millis() - loc_reset_timer > BUTTON_PRESS_LONG) {
+      locs[curr_loc][0] = random(180) - 90;
+      locs[curr_loc][1] = random(360) - 180;
+      eeprom_write_block((const void*)&locs, (void*)0, 6*sizeof(float));  // update locs in EEPROM
+      Serial.println("LONG PRESS 4");
+      Serial.print("Loc "); Serial.print(curr_loc); Serial.print(" set to: "); Serial.print(locs[curr_loc][0]); Serial.print(", "); Serial.println(locs[curr_loc][1]);
+      loc_reset_timer = millis();
+    }
+  }
 
   // if millis() or timer wraps around, we'll just reset it
   if (display_timer > millis())  display_timer = millis();
@@ -407,6 +424,8 @@ void loop() {
     {
       orientation += 2*PI;
     }
+    smoothed_orientation = (orientation * (1 - filterVal)) + (smoothed_orientation  *  filterVal); // smooth orientation
+    orientation = smoothed_orientation;                
     //Serial.print("Device Orientation: ");
     //Serial.println(orientation*180/PI);
     
@@ -416,12 +435,19 @@ void loop() {
       center_x + ARROW_RAD2*sin(display_bearing + ARROW_RAD2_ANGLE), center_y - ARROW_RAD2*cos(display_bearing + ARROW_RAD2_ANGLE), BG_COLOR_DEFAULT);
     tft.drawLine(center_x + ARROW_RAD*sin(display_bearing), center_y - ARROW_RAD*cos(display_bearing),
       center_x + ARROW_RAD2*sin(display_bearing - ARROW_RAD2_ANGLE), center_y - ARROW_RAD2*cos(display_bearing - ARROW_RAD2_ANGLE), BG_COLOR_DEFAULT);
-
-    display_bearing = bearing - orientation; // bearing w/ respect to device orientation
-    Serial.print("Relative Bearing: ");
-    Serial.print(abs(display_bearing*180/PI));
-    Serial.print(" : ");
-    Serial.println(GUIDELINE_ANGLE);
+    if (device_mode == COMPASS_MODE)
+    {
+      //point North
+      display_bearing = -orientation; 
+    }
+    else
+    {
+      display_bearing = bearing - orientation; // bearing w/ respect to device orientation
+    }
+    //Serial.print("Relative Bearing: ");
+    //Serial.print(abs(display_bearing*180/PI));
+    //Serial.print(" : ");
+    //Serial.println(GUIDELINE_ANGLE);
 
     if(abs(display_bearing*180/PI) < GUIDELINE_ANGLE) {
       if (line_color != LINE_COLOR_SUCCESS) {

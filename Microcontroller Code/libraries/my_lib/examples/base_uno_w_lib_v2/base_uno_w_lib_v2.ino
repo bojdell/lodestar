@@ -59,7 +59,7 @@ const uint16_t BG_COLOR_HIGHLIGHT = 0xFF00;         // background color used to 
 
 uint16_t line_color = LINE_COLOR_DEFAULT;           // initialize arrow lines to be default color
 int center_x = tft.width() / 2;                     // init center_x and center_y (center of navigation circle)
-int center_y = tft.height() / 2 + 22;                 // ^^
+int center_y = tft.height() / 2 + 22;               // ^^
 
 // Arrow
 const int ARROW_RAD = 46;               // radius of outermost arrow point
@@ -68,7 +68,8 @@ const float ARROW_RAD2_ANGLE = PI / 10; // angle to arrow tips in radians
 
 // Center Circle / Nav Guidelines
 const int CIRCLE_RAD = 30;              // radius of center circle (if present)
-const int GUIDELINE_ANGLE = 10;         // angle in deg of nav guidelines
+const int GUIDELINE_RAD = 20;           // length of guidelines in pixels
+const int GUIDELINE_ANGLE = 30;         // angle in deg of nav guidelines
 
 // Locations
 const int NUM_LOCS = 3;                 // number of locations we have stored
@@ -96,6 +97,37 @@ const int BUTTON_PRESS_LONG = 600;   // milliseconds until a long button press i
 #define EARTH_RADIUS 6371000        // mean Earth's radius in km
 const int CLOSE_TO_DEST = 15;       // within this radius we will alert user they are close to dest
 
+//
+const uint32_t GPS_SAMPLE_PERIOD = 1000;       // time between GPS data samples in milliseconds
+const uint32_t DISPLAY_UPDATE_PERIOD = 150;    // time between display updates in milliseconds (same as mag/acc. reading period)
+
+uint32_t gps_timer = millis(); //timer for GPS display update rates
+uint32_t display_timer = millis(); //timer for mag/accel sdisplay update rates
+uint32_t loc_reset_timer = millis(); // timer for long button press
+float bearing = 0; // bearing (in degrees) to destination with respect to True North
+float display_bearing = 0;
+float orientation = 0; //orientation of device with respect to True North (from magnetometer)
+float smoothed_orientation = 0; // smoothed orientation
+float filterVal = 0; // filter value: 0 = no smoothing, 1 = no update (filters everything!)
+float dist_to_dest = 0; //distance to destination
+
+//current coordinates in units of degrees (from uint32_t GPS.latitude_fixed/longitude_fixed)
+float curr_lat;
+float curr_lon; 
+//destination coordinates in units of degrees TODO::SET THESE
+float dest_lat = 40.102003/180*PI; //default to south quad lol
+float dest_lon = -88.227170/180*PI; 
+
+float delta_lat;
+float delta_lon;
+
+boolean button_pressed[4] = {false, false, false, false};
+
+int16_t mag_min[3] = /*{ -385,  -638, -1228 };*/ { -408,  -585,  -1149 }; // Sr. Design Lab
+int16_t mag_max[3] = /*{  601,   448,   372 };*/ {  508,   370,   173  }; // Sr. Design Lab
+
+boolean fake_fix = false;
+
 /****************************************
  * BEGIN FUNCTIONS
  ****************************************/
@@ -107,9 +139,9 @@ float getMagDeclination()
 }
 
 // TODO:
-// 1) hold to set location
-// 2) sensor fusion
-// 3) "debug mode"
+// 1) hold to set location  -- Done
+// 2) sensor fusion         -- no
+// 3) "debug mode"          -- no
 
 // this keeps track of whether we're using the interrupt
 // off by default!
@@ -186,10 +218,26 @@ void setup(void) {
   tft.setTextColor(TEXT_COLOR_DEFAULT, BG_COLOR_DEFAULT);
   tft.setTextWrap(true);
   
-//  tft.drawCircle(center_x, center_y, CENTER_RAD, TEXT_COLOR_DEFAULT);
+//  tft.drawCircle(center_x, center_y, CIRCLE_RAD, TEXT_COLOR_DEFAULT);
+
+  int leftGuideline[4] = {
+    center_x + (ARROW_RAD2 - GUIDELINE_RAD) * sin( ((float)GUIDELINE_ANGLE)/180 * PI ),
+    center_y - (ARROW_RAD2 - GUIDELINE_RAD) * cos( ((float)GUIDELINE_ANGLE)/180 * PI ),
+    center_x + ARROW_RAD2 * sin( ((float)GUIDELINE_ANGLE)/180 * PI ),
+    center_y - ARROW_RAD2 * cos( ((float)GUIDELINE_ANGLE)/180 * PI )
+  };
+  int rightGuideline[4] = {
+    center_x + (ARROW_RAD2 - GUIDELINE_RAD) * sin( -1 * ((float)GUIDELINE_ANGLE)/180 * PI ),
+    center_y - (ARROW_RAD2 - GUIDELINE_RAD) * cos( -1 * ((float)GUIDELINE_ANGLE)/180 * PI ),
+    center_x + ARROW_RAD2 * sin( -1 * ((float)GUIDELINE_ANGLE)/180 * PI ),
+    center_y - ARROW_RAD2 * cos( -1 * ((float)GUIDELINE_ANGLE)/180 * PI )
+  };
+  tft.drawLine(leftGuideline[0], leftGuideline[1], leftGuideline[2], leftGuideline[3], TEXT_COLOR_DEFAULT);
+  tft.drawLine(rightGuideline[0], rightGuideline[1], rightGuideline[2], rightGuideline[3], TEXT_COLOR_DEFAULT);
   
-  tft.drawLine(center_x, center_y, center_x + ARROW_RAD2*sin( ((float)GUIDELINE_ANGLE)/180 * PI ), center_y - ARROW_RAD2*cos( ((float)GUIDELINE_ANGLE)/180 * PI ), TEXT_COLOR_DEFAULT);
-  tft.drawLine(center_x, center_y, center_x + ARROW_RAD2*sin( -1 * ((float)GUIDELINE_ANGLE)/180 * PI ), center_y - ARROW_RAD2*cos( -1 * ((float)GUIDELINE_ANGLE)/180 * PI ), TEXT_COLOR_DEFAULT);
+//  tft.drawLine(center_x, center_y, center_x + ARROW_RAD2*sin( ((float)GUIDELINE_ANGLE)/180 * PI ), center_y - ARROW_RAD2*cos( ((float)GUIDELINE_ANGLE)/180 * PI ), TEXT_COLOR_DEFAULT);
+//  tft.drawLine(center_x, center_y, center_x + ARROW_RAD2*sin( -1 * ((float)GUIDELINE_ANGLE)/180 * PI ), center_y - ARROW_RAD2*cos( -1 * ((float)GUIDELINE_ANGLE)/180 * PI ), TEXT_COLOR_DEFAULT);
+  
   
   updateLocText(curr_loc);
 }
@@ -220,34 +268,6 @@ void useInterrupt(boolean v) {
   }
 }
 
-int x = 0, y = 0, z = 0;
-uint32_t gps_timer = millis(); //timer for GPS display update rates
-uint32_t display_timer = millis(); //timer for mag/accel sdisplay update rates
-uint32_t loc_reset_timer = millis(); // timer for long button press
-float bearing = 0; // bearing (in degrees) to destination with respect to True North
-float display_bearing = 0;
-float orientation = 0; //orientation of device with respect to True North (from magnetometer)
-float smoothed_orientation = 0; // smoothed orientation
-float filterVal = .5; // filter value: 0 = no smoothing, 1 = no update (filters everything!)
-float dist_to_dest = 0; //distance to destination
-
-//current coordinates in units of degrees (from uint32_t GPS.latitude_fixed/longitude_fixed)
-float curr_lat;
-float curr_lon; 
-//destination coordinates in units of degrees TODO::SET THESE
-float dest_lat = 40.102003/180*PI; //default to south quad lol
-float dest_lon = -88.227170/180*PI; 
-
-float delta_lat;
-float delta_lon;
-
-boolean button3 = false;
-
-int16_t mag_min[3] = { -385,  -638, -1228 }; //{ -408,  -585,  -1149 };
-int16_t mag_max[3] = {  601,   448,   372 }; //{  508,   370,   173  };
-
-boolean fake_fix = false;
-
 void loop() {
   /*GPS READING*/
   // in case you are not using the interrupt above, you'll
@@ -275,8 +295,8 @@ void loop() {
   // if millis() or timer wraps around, we'll just reset it
   if (gps_timer > millis())  gps_timer = millis();
 
-  // approximately every 5 seconds or so, print out the current stats
-  if (millis() - gps_timer > 5000) { 
+  // approximately every 1 seconds or so, print out the current stats
+  if (millis() - gps_timer > GPS_SAMPLE_PERIOD) { 
     gps_timer = millis(); // reset the timer  
     
 //    Serial.print("\nTime: ");
@@ -294,10 +314,14 @@ void loop() {
     tft.setCursor(0, CHAR_HEIGHT);
     if (!GPS.fix)
     {
-      tft.println("No fix");
+      if(fake_fix) {
+        tft.println("Fake fix");
+      }
+      else {
+        tft.println("No fix    ");
+      }
     }
     else {
-      tft.println("Ya fix");
       Serial.print("Location: ");
       Serial.print(GPS.latitude, 4); Serial.print(GPS.lat);
       Serial.print(", "); 
@@ -343,11 +367,11 @@ void loop() {
     tft.print("Dist: ");
     if(dist_to_dest <= CLOSE_TO_DEST) {
       tft.setTextColor(TEXT_COLOR_HIGHLIGHT, BG_COLOR_HIGHLIGHT);
-      tft.print((int)dist_to_dest); tft.print(" m");
+      tft.print((uint32_t)dist_to_dest); tft.print(" m");
       tft.setTextColor(TEXT_COLOR_DEFAULT, BG_COLOR_DEFAULT);
     }
     else {
-      tft.print((int)dist_to_dest); tft.print(" m");
+      tft.print((uint32_t)dist_to_dest); tft.print(" m");
     }
     tft.println("     ");
   }
@@ -357,30 +381,53 @@ void loop() {
 //  Serial.print("bearing: "); Serial.println(bearing*180/PI);
 //  Serial.print("distance: "); Serial.println(dist_to_dest);
 
-  //no debouncing, because loop times are long enough
-  if(HIGH == digitalRead(BUTTON_1)) // if pressed
-  {
-    //when this button is pressed, switch to compass mode (i.e. arrow points North, not to destination)
-    //bearing = 0;
-    if(device_mode == NORMAL_MODE)
-      device_mode = COMPASS_MODE;
+  // BUTTON 1
+  // when this button is pressed, switch to compass mode (i.e. arrow points North, not to destination)
+  if(HIGH == digitalRead(BUTTON_1)) {
+    if(!button_pressed[0]) {      // disable button holding
+      button_pressed[0] = true;
+      if(device_mode == NORMAL_MODE)
+        device_mode = COMPASS_MODE;
+    }
   }
   else {
+    if(button_pressed[0])
+      button_pressed[0] = false;
     if(device_mode == COMPASS_MODE)
       device_mode = NORMAL_MODE;
   }
-  if(HIGH == digitalRead(BUTTON_2)) // if pressed
-  { 
-    //fake location to ~statues in north quad
-    curr_lat = 40.114961/180*PI;
-    curr_lon = -88.227322/180*PI;
-    fake_fix = true;
+  
+  // BUTTON 2
+  // toggle fake fix 
+  if(HIGH == digitalRead(BUTTON_2))
+  {
+    if(!button_pressed[1]) {      // disable button holding
+      button_pressed[1] = true;
+      if(!fake_fix) {             // if not currently faking, begin fake_fix
+        fake_fix = true;
+        curr_lat = 40.114961/180*PI;          //fake location to ~statues in north quad
+        curr_lon = -88.227322/180*PI;
+      }
+      else {
+        fake_fix = false;
+        if(!GPS.fix) {
+          curr_lat = 0;
+          curr_lon = 0;
+        }
+      }
+    }
   }
-  else { fake_fix = false; }
+  else {
+    if(button_pressed[1])
+      button_pressed[1] = false;
+  }
+  
+  // BUTTON 3
+  // 
   if(HIGH == digitalRead(BUTTON_3)) // if pressed
   {
-    if(!button3) {
-      button3 = true;
+    if(!button_pressed[2]) {
+      button_pressed[2] = true;
       // when this button is pressed, update the current location being navigated to
       curr_loc++;
       if(curr_loc == NUM_LOCS)
@@ -392,27 +439,37 @@ void loop() {
   }
   else
   {
-    if(button3)
-      button3 = false;
+    if(button_pressed[2])
+      button_pressed[2] = false;
   }
+  
   // if button 4 held for a long press, set the current location
   if(HIGH == digitalRead(BUTTON_4))
   {
-    if(millis() - loc_reset_timer > BUTTON_PRESS_LONG) {
-      locs[curr_loc][0] = random(180) - 90;
-      locs[curr_loc][1] = random(360) - 180;
-      eeprom_write_block((const void*)&locs, (void*)0, 6*sizeof(float));  // update locs in EEPROM
-      Serial.println("LONG PRESS 4");
-      Serial.print("Loc "); Serial.print(curr_loc); Serial.print(" set to: "); Serial.print(locs[curr_loc][0]); Serial.print(", "); Serial.println(locs[curr_loc][1]);
-      loc_reset_timer = millis();
+    if(!button_pressed[3]) {
+      button_pressed[3] = true;
+      if(millis() - loc_reset_timer > BUTTON_PRESS_LONG) {
+        locs[curr_loc][0] = random(180) - 90;
+        locs[curr_loc][1] = random(360) - 180;
+        dest_lat = locs[curr_loc][0];
+        dest_lon = locs[curr_loc][1];
+        eeprom_write_block((const void*)&locs, (void*)0, 6*sizeof(float));  // update locs in EEPROM
+        Serial.println("LONG PRESS 4");
+        Serial.print("Loc "); Serial.print(curr_loc); Serial.print(" set to: "); Serial.print(locs[curr_loc][0]); Serial.print(", "); Serial.println(locs[curr_loc][1]);
+        loc_reset_timer = millis();
+      }
     }
+  }
+  else {
+    if(button_pressed[3])
+      button_pressed[3] = false;
   }
 
   // if millis() or timer wraps around, we'll just reset it
   if (display_timer > millis())  display_timer = millis();
 
   // approximately every <TODO, ~400ms is okay...> seconds or so, print out the current stats
-  if (millis() - display_timer > 150) { 
+  if (millis() - display_timer > DISPLAY_UPDATE_PERIOD) { 
     display_timer = millis(); // reset the timer  \
 
     // print current device mode

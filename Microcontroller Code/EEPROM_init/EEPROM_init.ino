@@ -14,10 +14,9 @@ float locs2[3][2];
 
 void setup()
 {
-  Serial.begin(9600);
 //  Serial.println((double)(90 * DEG_TO_RAD));
-//  eeprom_write_block((const void*)&locs, (void*)0, 6*sizeof(float));
-//  delay(500);
+  eeprom_write_block((const void*)&locs, (void*)0, 6*sizeof(float));
+  delay(500);
   eeprom_read_block((void*)&locs2, (void*)0, 6*sizeof(float));
   
   Serial.println(locs2[0][0]);
@@ -28,9 +27,6 @@ void setup()
   Serial.println(locs2[2][1]);
   Serial.println("==================");
   delay(500);
-//  for(int i = 0; i < 3; i++) {
-//    EEPROM.write(
-//  }
 }
 
 void loop()

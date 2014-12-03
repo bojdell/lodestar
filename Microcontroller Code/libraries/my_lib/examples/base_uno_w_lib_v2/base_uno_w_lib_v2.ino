@@ -56,6 +56,10 @@ const uint16_t TEXT_COLOR_DEFAULT = ST7735_WHITE;   // default color used to dra
 const uint16_t TEXT_COLOR_HIGHLIGHT = ST7735_BLACK; // color used to draw highlighted text
 const uint16_t BG_COLOR_DEFAULT = ST7735_BLACK;     // default background color for entire display
 const uint16_t BG_COLOR_HIGHLIGHT = 0xFF00;         // background color used to draw highlighted text
+const uint16_t SPLASH_BG_COLOR_DEFAULT = 0x333C;    // default background color for splash screen
+const uint16_t SPLASH_BG_COLOR_HIGHLIGHT = 0xFF00;  // background color used to draw highlighted text on splash screen
+
+const int SPLASH_TIMER = 2000;                      // how long splash screen is displayed for
 
 uint16_t line_color = LINE_COLOR_DEFAULT;           // initialize arrow lines to be default color
 int center_x = tft.width() / 2;                     // init center_x and center_y (center of navigation circle)
@@ -77,7 +81,7 @@ float locs[NUM_LOCS][2];                // data structure to hold stored locatio
 int curr_loc = 0;                       // the location we are currently navigating to
 
 // coordinates for drawing location
-const int LOC_START_X = 2 * CHAR_WIDTH;
+const int LOC_START_X = 30;      // To Center: "Loc: 1 2 3" -- length = 10, (120 - 10*6)/2
 const int LOC_START_Y = tft.height() - CHAR_HEIGHT;
 
 // Device Modes
@@ -97,36 +101,40 @@ const int BUTTON_PRESS_LONG = 600;   // milliseconds until a long button press i
 #define EARTH_RADIUS 6371000        // mean Earth's radius in km
 const int CLOSE_TO_DEST = 15;       // within this radius we will alert user they are close to dest
 
-//
+// Timing
 const uint32_t GPS_SAMPLE_PERIOD = 1000;       // time between GPS data samples in milliseconds
 const uint32_t DISPLAY_UPDATE_PERIOD = 150;    // time between display updates in milliseconds (same as mag/acc. reading period)
 
-uint32_t gps_timer = millis(); //timer for GPS display update rates
-uint32_t display_timer = millis(); //timer for mag/accel sdisplay update rates
-uint32_t loc_reset_timer = millis(); // timer for long button press
-float bearing = 0; // bearing (in degrees) to destination with respect to True North
-float display_bearing = 0;
-float orientation = 0; //orientation of device with respect to True North (from magnetometer)
+uint32_t gps_timer = millis();                 //timer for GPS display update rates
+uint32_t display_timer = millis();             //timer for mag/accel sdisplay update rates
+uint32_t loc_reset_timer = millis();           // timer for long button press
+
+// Navigation
+float bearing = 0;                             // bearing (in degrees) to destination with respect to True North
+float display_bearing = 0;                     // angle we draw on the display
+float orientation = 0;                         //orientation of device with respect to True North (from magnetometer)
+//destination coordinates in units of degrees TODO::SET THESE
+float dest_lat = 40.102003/180*PI; //default to south quad lol
+float dest_lon = -88.227170/180*PI; 
+float delta_lat;
+float delta_lon;
+// current coordinates in units of degrees (from uint32_t GPS.latitude_fixed/longitude_fixed)
+float curr_lat;
+float curr_lon;
+
+boolean fake_fix = false;                      // are we currently faking our GPS fix?
+
+// Filtering
 float smoothed_orientation = 0; // smoothed orientation
 float filterVal = 0; // filter value: 0 = no smoothing, 1 = no update (filters everything!)
 float dist_to_dest = 0; //distance to destination
 
-//current coordinates in units of degrees (from uint32_t GPS.latitude_fixed/longitude_fixed)
-float curr_lat;
-float curr_lon; 
-//destination coordinates in units of degrees TODO::SET THESE
-float dest_lat = 40.102003/180*PI; //default to south quad lol
-float dest_lon = -88.227170/180*PI; 
-
-float delta_lat;
-float delta_lon;
-
+// Debounce Buttons
 boolean button_pressed[4] = {false, false, false, false};
 
+// Magnetometer Calibration
 int16_t mag_min[3] = /*{ -385,  -638, -1228 };*/ { -408,  -585,  -1149 }; // Sr. Design Lab
 int16_t mag_max[3] = /*{  601,   448,   372 };*/ {  508,   370,   173  }; // Sr. Design Lab
-
-boolean fake_fix = false;
 
 /****************************************
  * BEGIN FUNCTIONS
@@ -149,7 +157,8 @@ boolean usingInterrupt = false;
 void useInterrupt(boolean); // Func prototype keeps Arduino 0023 happy
 
 void updateLocText(int loc) {
-  tft.setCursor(LOC_START_X, LOC_START_Y);
+  tft.setCursor(30, LOC_START_Y);
+//  tft.setTextSize(2);
   tft.print("Loc: ");
   for(int i = 0; i < NUM_LOCS; i++) {
     if(i == loc) {
@@ -160,11 +169,37 @@ void updateLocText(int loc) {
       tft.print(i+1); tft.print(" ");
     }
   }
-  return;
+//  tft.setTextSize(1);
+}
+
+int centerStr(int strLen) {
+  return (128 - strLen*CHAR_WIDTH) / 2;
+}
+
+//  #define DISCLAIMER "This device only supports straight-line navigation toward destination locations. It will not account for any hazards that may be present along this path. Use this product at your own risk!"
+
+void printSplashScreen() {
+  tft.fillScreen(SPLASH_BG_COLOR_DEFAULT);
+  tft.setTextColor(TEXT_COLOR_DEFAULT, SPLASH_BG_COLOR_DEFAULT);
+  tft.setTextWrap(true);
+  tft.setTextSize(3);
+  tft.print("CAUTION");
+  tft.setTextSize(1);
+  tft.println("This device only supports straight-line navigation toward destination locations. It will not account for any hazards that may be present along this path. Use this product at your own risk!");
+  tft.setTextSize(2);
+//  tft.setCursor(centerStr(7*2), tft.height() - 6*CHAR_HEIGHT);
+  tft.println("Project");
+//  tft.setCursor(centerStr(8*2), tft.height() - 4*CHAR_HEIGHT);
+//  tft.println("Lodestar");
+  tft.setTextSize(1);
 }
 
 void setup(void) {
   Serial.begin(115200); // this might need to be bigger to accomodate printing NMEA sentences on serial monitor
+  
+  tft.initR(INITR_BLACKTAB);   // initialize a ST7735S chip, black tab
+//  printSplashScreen();         // display splash screen
+
   GPS.begin(9600); // initialize hardware serial for GPS
   
   //send init PMTK packets to GPS
@@ -175,9 +210,6 @@ void setup(void) {
   
   eeprom_read_block((void*)&locs, (void*)0, 2*NUM_LOCS*sizeof(float));
 
-  // the nice thing about this code is you can have a timer0 interrupt go off
-  // every 1 millisecond, and read data from the GPS for you. that makes the
-  // loop code a heck of a lot easier!
   useInterrupt(true);
   // Ask for firmware version
   mySerial.println(PMTK_Q_RELEASE);
@@ -185,9 +217,6 @@ void setup(void) {
   delay(1000);
   // Ask for firmware version
   mySerial.println(PMTK_Q_RELEASE);
-
-  // Use this initializer if you're using a 1.8" TFT
-  tft.initR(INITR_BLACKTAB);   // initialize a ST7735S chip, black tab
 
   // Use this initializer (uncomment) if you're using a 1.44" TFT
   //tft.initR(INITR_144GREENTAB);   // initialize a ST7735S chip, black tab
@@ -207,6 +236,8 @@ void setup(void) {
     while (1);
   }
   lsm.write8(LSM303_ADDRESS_MAG, lsm.LSM303_REGISTER_MAG_CRA_REG_M, (byte)0x90); // change output rate to 15Hz
+  
+  delay(SPLASH_TIMER);
 
   uint16_t time = millis();
   tft.fillScreen(BG_COLOR_DEFAULT);
@@ -449,8 +480,16 @@ void loop() {
     if(!button_pressed[3]) {
       button_pressed[3] = true;
       if(millis() - loc_reset_timer > BUTTON_PRESS_LONG) {
-        locs[curr_loc][0] = random(180) - 90;
-        locs[curr_loc][1] = random(360) - 180;
+        if(fake_fix) {
+          locs[curr_loc][0] = random(180) - 90;
+          locs[curr_loc][1] = random(360) - 180;
+        }
+        else {
+          if(GPS.fix) {
+            locs[curr_loc][0] = ((float)GPS.latitude_fixed)/10000000/180*PI;
+            locs[curr_loc][1] = ((float)GPS.longitude_fixed)/10000000/180*PI;
+          }
+        }
         dest_lat = locs[curr_loc][0];
         dest_lon = locs[curr_loc][1];
         eeprom_write_block((const void*)&locs, (void*)0, 6*sizeof(float));  // update locs in EEPROM
@@ -512,12 +551,11 @@ void loop() {
     {
       display_bearing = bearing - orientation; // bearing w/ respect to device orientation
     }
-    //Serial.print("Relative Bearing: ");
-    //Serial.print(abs(display_bearing*180/PI));
-    //Serial.print(" : ");
-    //Serial.println(GUIDELINE_ANGLE);
 
-    if(abs(display_bearing*180/PI) < GUIDELINE_ANGLE) {
+    int db_deg = (int)(display_bearing*RAD_TO_DEG)%360;
+    if(db_deg < -180) db_deg += 360;
+    
+    if( abs(db_deg) < GUIDELINE_ANGLE) {
       if (line_color != LINE_COLOR_SUCCESS) {
         line_color = LINE_COLOR_SUCCESS;
       }
